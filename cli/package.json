@@ -1,0 +1,19 @@
+{
+  "name": "clawt",
+  "version": "1.0.0",
+  "description": "CLI-powered apartment cleaning booking service",
+  "type": "module",
+  "bin": {
+    "clawt": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

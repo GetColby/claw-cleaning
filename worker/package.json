@@ -1,0 +1,18 @@
+{
+  "name": "clawt-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "setup-auth": "node scripts/setup-google-auth.js"
+  },
+  "dependencies": {
+    "hono": "^4.7.7",
+    "stripe": "^17.7.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.12.0"
+  }
+}
