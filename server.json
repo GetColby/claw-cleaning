@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.getcolby/clawt",
+  "title": "claw.cleaning",
+  "description": "Book a San Francisco apartment cleaning. $40/hr, weekends 8am-6pm PT, SF only.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/GetColby/clawt",
+    "source": "github"
+  },
+  "websiteUrl": "https://claw.cleaning",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/GetColby/clawt/main/assets/icon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://claw.cleaning/mcp"
+    }
+  ],
+  "packages": []
+}
