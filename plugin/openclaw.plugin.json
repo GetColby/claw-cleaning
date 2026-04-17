@@ -1,5 +1,5 @@
 {
-  "id": "claw-cleaning",
+  "id": "claw-cleaning-plugin",
   "name": "claw.cleaning",
   "description": "Book a San Francisco apartment cleaning through the claw.cleaning MCP server. $40/hr, weekends 8am-6pm PT. Ships the apartment-cleaning skill and wires the remote MCP connector.",
   "version": "1.0.0",

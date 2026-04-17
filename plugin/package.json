@@ -1,5 +1,5 @@
 {
-  "name": "@claw-cleaning/openclaw-plugin",
+  "name": "claw-cleaning-plugin",
   "version": "1.0.0",
   "description": "OpenClaw plugin that registers the claw.cleaning remote MCP server and bundles the apartment-cleaning skill.",
   "type": "module",
