@@ -1,0 +1,14 @@
+{
+  "name": "claw-cleaning",
+  "version": "1.0.0",
+  "description": "Book a San Francisco apartment cleaning via claw.cleaning. $40/hour, weekends 8am-6pm PT, SF only. Ships the apartment-cleaning skill + remote MCP connector (no local binary).",
+  "author": {
+    "name": "claw.cleaning",
+    "email": "connor@getcolby.com",
+    "url": "https://claw.cleaning"
+  },
+  "homepage": "https://claw.cleaning",
+  "repository": "https://github.com/GetColby/claw-cleaning",
+  "license": "MIT",
+  "keywords": ["cleaning", "san-francisco", "booking", "stripe", "calendar"]
+}

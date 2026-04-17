@@ -1,5 +1,13 @@
-import { isSlotFree } from '../lib/calendar.js';
-import { createCheckoutSession, getSessionsByEmail } from '../lib/stripe.js';
+import { isSlotFree, createBookingEvents } from '../lib/calendar.js';
+import {
+  RATE_CENTS,
+  createCheckoutSession,
+  chargeSavedCard,
+  getCustomerWithSavedCard,
+  getOrCreateCustomer,
+  refundPaymentIntent,
+  getBookingsByEmail,
+} from '../lib/stripe.js';
 
 function isSatOrSun(dateStr) {
   const day = new Date(dateStr + 'T12:00:00Z').getUTCDay();
@@ -12,66 +20,124 @@ function isSFAddress(address) {
   return lower.includes('san francisco') || lower.includes(', sf,') || lower.includes(', sf ') || sfZipPattern.test(address);
 }
 
+function validateBookingBody(body) {
+  const { date, startTime, hours, address, name, email, payInPerson } = body || {};
+  if (!date || !startTime || !hours || !address || !name || !email) {
+    return { error: 'Missing required fields: date, startTime, hours, address, name, email.' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Invalid date format. Use YYYY-MM-DD.' };
+  if (!isSatOrSun(date)) return { error: 'Bookings are only available Saturday and Sunday.' };
+  if (!/^\d{2}:\d{2}$/.test(startTime)) return { error: 'Invalid startTime format. Use HH:MM (24h).' };
+  const hoursNum = parseInt(hours, 10);
+  if (!hoursNum || hoursNum < 1 || hoursNum > 8) return { error: 'Hours must be between 1 and 8.' };
+  if (!isSFAddress(address)) return { error: 'Address must be in San Francisco, CA.' };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Invalid email address.' };
+  return { ok: { date, startTime, hours: hoursNum, address, name, email, payInPerson: !!payInPerson } };
+}
+
 export async function handleInitiateBooking(c) {
   let body;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON body.' }, 400);
-  }
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body.' }, 400); }
 
-  const { date, startTime, hours, address, name, email } = body;
-
-  // Validate required fields
-  if (!date || !startTime || !hours || !address || !name || !email) {
-    return c.json({ error: 'Missing required fields: date, startTime, hours, address, name, email.' }, 400);
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return c.json({ error: 'Invalid date format. Use YYYY-MM-DD.' }, 400);
-  }
-  if (!isSatOrSun(date)) {
-    return c.json({ error: 'Bookings are only available Saturday and Sunday.' }, 400);
-  }
-  if (!/^\d{2}:\d{2}$/.test(startTime)) {
-    return c.json({ error: 'Invalid startTime format. Use HH:MM (24h).' }, 400);
-  }
-  const hoursNum = parseInt(hours, 10);
-  if (!hoursNum || hoursNum < 1 || hoursNum > 8) {
-    return c.json({ error: 'Hours must be between 1 and 8.' }, 400);
-  }
-  if (!isSFAddress(address)) {
-    return c.json({ error: 'Address must be in San Francisco, CA.' }, 400);
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return c.json({ error: 'Invalid email address.' }, 400);
-  }
+  const validated = validateBookingBody(body);
+  if (validated.error) return c.json({ error: validated.error }, 400);
+  const { date, startTime, hours, address, name, email, payInPerson } = validated.ok;
+  const total = hours * (RATE_CENTS / 100);
 
   try {
-    const free = await isSlotFree(c.env, date, startTime, hoursNum);
+    const free = await isSlotFree(c.env, date, startTime, hours);
     if (!free) {
       return c.json({ error: 'That time slot is no longer available. Please check availability and choose another time.' }, 409);
     }
 
+    // Pay-on-completion path — customer pays the cleaner in person. No Stripe.
+    if (payInPerson) {
+      try {
+        await createBookingEvents(c.env, { date, startTime, hours, address, name, email });
+      } catch (err) {
+        console.error('Calendar event creation failed (pay-in-person):', err);
+        return c.json({ error: 'Could not create calendar event. Please try again.' }, 500);
+      }
+      return c.json({
+        status: 'booked',
+        paymentMethod: 'in_person',
+        total: `$${total}`,
+        date, startTime, hours, address, email,
+        message: `Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}. Pay $${total} cash or card to the cleaner at the appointment.`,
+      });
+    }
+
+    const saved = await getCustomerWithSavedCard(c.env, email);
+
+    // Repeat customer path — charge the saved card directly, no browser.
+    if (saved) {
+      let intent;
+      try {
+        intent = await chargeSavedCard(c.env, {
+          customer: saved.customer,
+          paymentMethod: saved.paymentMethod,
+          hours, date, startTime, address, name, email,
+        });
+      } catch (err) {
+        console.error('Off-session charge failed:', err.stripeCode, err.stripeDeclineCode, err.message);
+        return c.json({
+          error: err.message,
+          code: err.stripeCode,
+          declineCode: err.stripeDeclineCode,
+          requiresAction: !!err.requiresAction,
+          paymentIntentId: err.paymentIntentId,
+          message: err.requiresAction
+            ? 'The card on file requires additional verification. The customer needs to make a fresh booking via a checkout URL to re-authorize.'
+            : 'The card on file was declined. The customer should try a different card by making a fresh booking via a checkout URL.',
+        }, 402);
+      }
+
+      // Race-condition recheck after payment
+      const stillFree = await isSlotFree(c.env, date, startTime, hours);
+      if (!stillFree) {
+        await refundPaymentIntent(c.env, intent.id).catch(e => console.error('Refund failed:', e));
+        return c.json({ error: 'That time slot was just taken. Full refund issued. Please check availability and choose another time.' }, 409);
+      }
+
+      try {
+        await createBookingEvents(c.env, { date, startTime, hours, address, name, email });
+      } catch (err) {
+        console.error('Calendar event creation failed, refunding:', err);
+        await refundPaymentIntent(c.env, intent.id).catch(e => console.error('Refund failed:', e));
+        return c.json({ error: 'Could not create calendar event. Full refund issued. Please try again.' }, 500);
+      }
+
+      return c.json({
+        status: 'booked',
+        paymentIntentId: intent.id,
+        total: `$${total}`,
+        date, startTime, hours, address, email,
+        message: `Charged the card on file. Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}.`,
+      });
+    }
+
+    // First-time customer path — Stripe Checkout saves the card for next time.
+    const customer = await getOrCreateCustomer(c.env, { email, name });
     const session = await createCheckoutSession(c.env, {
-      date, startTime, hours: hoursNum, address, name, email,
+      customer, date, startTime, hours, address, name, email,
     });
 
     return c.json({
+      status: 'checkout_required',
       checkoutUrl: session.url,
       sessionId: session.id,
-      total: `$${hoursNum * 60}`,
-      message: `Complete payment to confirm your ${hoursNum}h cleaning on ${date} at ${startTime}.`,
+      total: `$${total}`,
+      message: `First-time booking — customer must complete payment at checkoutUrl. Their card will be saved, so future bookings with email "${email}" will charge automatically without a browser.`,
     });
   } catch (err) {
-    console.error(err);
+    console.error('initiate_booking error:', err);
     return c.json({ error: 'Failed to initiate booking.' }, 500);
   }
 }
 
-function deriveStatus(session) {
-  const meta = session.metadata || {};
-  if (session.payment_status === 'paid') return meta.calendarBooked === 'true' ? 'booked' : 'processing';
-  if (session.status === 'expired') return 'expired';
+function deriveStatus(booking) {
+  if (booking.paid) return booking.metadata.calendarBooked === 'true' ? 'booked' : 'processing';
+  if (booking.expired) return 'expired';
   return 'pending';
 }
 
@@ -81,19 +147,17 @@ export async function handleBookingStatus(c) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ error: 'Invalid email address.' }, 400);
 
   try {
-    const sessions = await getSessionsByEmail(c.env, email);
-    const bookings = sessions.map(s => {
-      const meta = s.metadata || {};
-      return {
-        status: deriveStatus(s),
-        date: meta.date,
-        startTime: meta.startTime,
-        hours: meta.hours,
-        address: meta.address,
-        sessionId: s.id,
-        createdAt: s.created ? new Date(s.created * 1000).toISOString() : null,
-      };
-    });
+    const raw = await getBookingsByEmail(c.env, email);
+    const bookings = raw.map(b => ({
+      status: deriveStatus(b),
+      date: b.metadata.date,
+      startTime: b.metadata.startTime,
+      hours: b.metadata.hours,
+      address: b.metadata.address,
+      source: b.source,
+      id: b.id,
+      createdAt: b.created ? new Date(b.created * 1000).toISOString() : null,
+    }));
     return c.json({ email, bookings });
   } catch (err) {
     console.error(err);

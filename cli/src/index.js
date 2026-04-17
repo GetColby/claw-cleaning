@@ -5,7 +5,7 @@ import { bookCommand } from './commands/book.js';
 import { statusCommand } from './commands/status.js';
 
 program
-  .name('clawt')
+  .name('claw-cleaning')
   .description('Book a professional apartment cleaning in San Francisco')
   .version('1.0.0');
 
@@ -17,13 +17,14 @@ program
 
 program
   .command('book')
-  .description('Book a cleaning session ($60/hour)')
+  .description('Book a cleaning session ($40/hour)')
   .requiredOption('--date <YYYY-MM-DD>', 'Date of cleaning (Saturday or Sunday)')
   .requiredOption('--start <HH:MM>', 'Start time in 24h format (e.g. 10:00)')
   .requiredOption('--hours <N>', 'Number of hours (1–8)')
   .requiredOption('--address <address>', 'Full address in San Francisco, CA')
   .requiredOption('--name <name>', 'Your name')
   .requiredOption('--email <email>', 'Your email (calendar invite will be sent here)')
+  .option('--pay-on-completion', 'Skip Stripe and pay the cleaner in person at the appointment')
   .action(bookCommand);
 
 program

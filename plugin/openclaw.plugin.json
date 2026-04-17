@@ -1,0 +1,25 @@
+{
+  "id": "claw-cleaning",
+  "name": "claw.cleaning",
+  "description": "Book a San Francisco apartment cleaning through the claw.cleaning MCP server. $40/hr, weekends 8am-6pm PT. Ships the apartment-cleaning skill and wires the remote MCP connector.",
+  "version": "1.0.0",
+  "enabledByDefault": false,
+  "skills": ["skills/apartment-cleaning"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "serverUrl": {
+        "type": "string",
+        "default": "https://claw.cleaning/mcp",
+        "description": "Remote MCP endpoint. Only override for staging."
+      }
+    },
+    "additionalProperties": false
+  },
+  "activation": {
+    "onCapabilities": ["tools"]
+  },
+  "contracts": {
+    "tools": true
+  }
+}

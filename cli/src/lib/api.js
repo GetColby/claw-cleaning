@@ -1,7 +1,7 @@
-const DEFAULT_SERVER = 'https://clawt-server.workers.dev';
+const DEFAULT_SERVER = 'https://claw.cleaning';
 
 export function getServerUrl() {
-  return (process.env.CLAWT_SERVER_URL || DEFAULT_SERVER).replace(/\/$/, '');
+  return (process.env.CLAW_CLEANING_SERVER_URL || DEFAULT_SERVER).replace(/\/$/, '');
 }
 
 export async function apiFetch(path, options = {}) {
@@ -12,7 +12,12 @@ export async function apiFetch(path, options = {}) {
   });
   const data = await resp.json();
   if (!resp.ok) {
-    throw new Error(data.error || `Server error ${resp.status}`);
+    const err = new Error(data.error || data.message || `Server error ${resp.status}`);
+    err.status = resp.status;
+    err.code = data.code;
+    err.declineCode = data.declineCode;
+    err.requiresAction = !!data.requiresAction;
+    throw err;
   }
   return data;
 }

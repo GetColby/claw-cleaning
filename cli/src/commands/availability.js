@@ -17,7 +17,7 @@ function renderSlots(slots) {
     const endPeriod = endH < 12 ? 'AM' : 'PM';
     const end12 = endH % 12 || 12;
     const endFmt = `${end12}:${String(m).padStart(2, '0')} ${endPeriod}`;
-    return `  ${chalk.green('✓')} ${chalk.bold(startFmt)} — up to ${chalk.cyan(s.maxHours + 'h')} (until ${endFmt}) — ${chalk.yellow('$' + (s.maxHours * 60))} max`;
+    return `  ${chalk.green('✓')} ${chalk.bold(startFmt)} — up to ${chalk.cyan(s.maxHours + 'h')} (until ${endFmt}) — ${chalk.yellow('$' + (s.maxHours * 40))} max`;
   }).join('\n');
 }
 
@@ -37,7 +37,7 @@ export async function availabilityCommand(options) {
         console.log();
       }
     }
-    console.log(chalk.dim('\nBook with: clawt book --date YYYY-MM-DD --start HH:MM --hours N --address "..." --name "..." --email "..."'));
+    console.log(chalk.dim('\nBook with: claw-cleaning book --date YYYY-MM-DD --start HH:MM --hours N --address "..." --name "..." --email "..."'));
   } catch (err) {
     console.error(chalk.red('Error:'), err.message);
     process.exit(1);

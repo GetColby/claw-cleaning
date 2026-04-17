@@ -150,7 +150,7 @@ export async function createBookingEvents(env, { date, startTime, hours, address
     makeEvent(`🚗 Travel to ${name}`, travelStart, cleanStart),
     makeEvent(`🧹 Apartment Cleaning — ${name}`, cleanStart, cleanEnd, {
       location: address,
-      description: `${hours}h cleaning session\nAddress: ${address}\nCustomer: ${name} <${email}>\nRate: $${hours * 60}`,
+      description: `${hours}h cleaning session\nAddress: ${address}\nCustomer: ${name} <${email}>\nRate: $${hours * 40}`,
       attendees: [{ email }],
       sendUpdates: 'all',
     }),
