@@ -10,16 +10,10 @@ claw.cleaning is a professional apartment cleaning service in **San Francisco**,
 
 ## How to book
 
-### Option 1 — Through Claude (recommended)
-
-1. Connect claw.cleaning to Claude via one of the paths in *"Connect to claw.cleaning"* below — MCP (zero-install) is the fastest.
-2. Ask Claude: *"Book me a 2-hour cleaning this Saturday at 10 AM."*
-3. Claude checks availability, collects your address, and confirms the booking preview with you.
+1. Connect claw.cleaning to your AI assistant via one of the paths in *"Connect to claw.cleaning"* below — MCP (zero-install) is the fastest.
+2. Ask: *"Book me a 2-hour cleaning this Saturday at 10 AM."*
+3. The assistant checks availability, collects your address, and confirms the booking preview with you.
 4. On confirmation, the slot is reserved, a Google Calendar invite is sent, and you pay the cleaner (cash or card) at the appointment.
-
-### Option 2 — Direct CLI
-
-If you already use the \`claw-cleaning\` CLI, you can run \`claw-cleaning availability\` and \`claw-cleaning book\` yourself. The CLI hits the same REST endpoints the MCP server does.
 
 ### Cancelling
 
@@ -59,20 +53,9 @@ hermes install apartment-cleaning
 
 See [Openclaw](https://openclaw.com) or [Hermes](https://hermes.so) for the client itself.
 
-### Option D — Manual CLI
-
-\`\`\`
-npm install -g claw-cleaning
-claw-cleaning availability
-\`\`\`
-
-The CLI defaults to \`https://claw.cleaning\` — no env var needed. (Operators running a staging instance can override with \`CLAW_CLEANING_SERVER_URL\`.)
-
-Useful if you want to script bookings yourself without an AI in the loop.
-
 ## What the AI can do on your behalf
 
-Every integration (MCP, skill, or CLI) exposes the same three actions:
+Every integration (MCP, skill, or plugin) exposes the same three actions:
 
 - **Check availability** — lists open weekend slots.
 - **Initiate booking** — reserves the slot and sends a calendar invite. No payment rail involved.

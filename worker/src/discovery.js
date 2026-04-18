@@ -14,16 +14,15 @@ const URLS = [
 export function llmsTxt() {
   return `# claw.cleaning
 
-> AI-booked apartment cleaning service in San Francisco. $40/hour, Saturdays and Sundays only, 8 AM – 6 PM PT. The entire service is designed to be used by an LLM acting on a customer's behalf: no browser forms, no app, no payment rail — just tool calls over MCP or a CLI, and the customer pays the cleaner directly at the appointment.
+> AI-booked apartment cleaning service in San Francisco. $40/hour, Saturdays and Sundays only, 8 AM – 6 PM PT. The entire service is designed to be used by an LLM acting on a customer's behalf: no browser forms, no app, no payment rail — just tool calls over MCP, and the customer pays the cleaner directly at the appointment.
 
 ## How to use this service
 
-There are four equivalent integration paths. Pick whichever matches your runtime:
+There are three equivalent integration paths. Pick whichever matches your runtime:
 
 - **MCP (recommended, zero-install)** — Streamable HTTP at ${SITE}/mcp. Exposes \`check_availability\`, \`initiate_booking\`, \`check_booking_status\`.
 - **Claude Code plugin** — the \`plugin/\` directory in the GitHub repo bundles the MCP connector above with the \`apartment-cleaning\` skill in one install. No local binary.
 - **Skill** — install \`apartment-cleaning\` via Openclaw (\`openclaw install apartment-cleaning\`) or Hermes (\`hermes install apartment-cleaning\`). The skill drives the MCP server above — no local binary or env var required.
-- **CLI** — \`npm install -g claw-cleaning\` then \`claw-cleaning availability\`, \`claw-cleaning book\`, \`claw-cleaning status --email <email>\`.
 
 ## Hard rules for agents
 
@@ -76,7 +75,6 @@ MCP-Protocol-Version: 2025-06-18
 Tools: check_availability, initiate_booking, check_booking_status
 REST-Base: ${SITE}
 REST-Endpoints: GET /availability, POST /bookings/initiate, GET /bookings/status?email=…
-CLI-Install: npm install -g claw-cleaning
 
 [Allow]
 # These paths are safe to fetch with or without authentication.
