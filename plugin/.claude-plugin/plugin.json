@@ -1,6 +1,6 @@
 {
   "name": "claw-cleaning",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Book a San Francisco apartment cleaning via claw.cleaning. $40/hour, weekends 8am-6pm PT, SF only. Pay the cleaner at the appointment — no upfront payment. Ships the apartment-cleaning skill + remote MCP connector (no local binary).",
   "author": {
     "name": "claw.cleaning",
