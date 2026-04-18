@@ -128,7 +128,36 @@ export async function isSlotFree(env, dateStr, startTime, hours) {
   return true;
 }
 
-// Create the 3 calendar events for a confirmed booking
+// List upcoming bookings for a given email by querying the calendar for
+// future events whose description / attendees contain the email. Returns
+// cleaning events only (travel-buffer events are filtered out).
+export async function getBookingsByEmail(env, email, limit = 20) {
+  const timeMin = new Date().toISOString();
+  const path = `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events?timeMin=${encodeURIComponent(timeMin)}&q=${encodeURIComponent(email)}&maxResults=${limit}&singleEvents=true&orderBy=startTime`;
+  const data = await calFetch(env, path);
+  const events = (data.items || []).filter(ev => typeof ev.summary === 'string' && ev.summary.startsWith('🧹'));
+  return events.map(ev => {
+    const startIso = ev.start?.dateTime || null;
+    const endIso = ev.end?.dateTime || null;
+    const startDate = startIso ? new Date(startIso) : null;
+    const endDate = endIso ? new Date(endIso) : null;
+    const hours = startDate && endDate ? Math.round((endDate - startDate) / (60 * 60 * 1000)) : null;
+    const date = startIso ? startIso.slice(0, 10) : null;
+    const startTime = startDate ? startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ }) : null;
+    return {
+      eventId: ev.id,
+      date,
+      startTime,
+      hours,
+      address: ev.location || null,
+      summary: ev.summary,
+    };
+  });
+}
+
+// Create the 3 calendar events for a confirmed booking. All three share a
+// `claw_booking_id` extended-property so the decline-cleanup cron can find and
+// delete the full set when the customer declines the invite.
 export async function createBookingEvents(env, { date, startTime, hours, address, name, email }) {
   const [h, m] = startTime.split(':').map(Number);
   const cleanStart = new Date(`${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00-07:00`);
@@ -138,11 +167,14 @@ export async function createBookingEvents(env, { date, startTime, hours, address
   const travelEndAfter = new Date(cleanEnd.getTime() + bufMs);
 
   const toIso = d => d.toISOString();
+  const bookingId = crypto.randomUUID();
+  const extendedProperties = { private: { claw_booking_id: bookingId, claw_customer_email: email } };
 
   const makeEvent = (summary, start, end, extra = {}) => ({
     summary,
     start: { dateTime: toIso(start), timeZone: TZ },
     end: { dateTime: toIso(end), timeZone: TZ },
+    extendedProperties,
     ...extra,
   });
 
@@ -150,7 +182,7 @@ export async function createBookingEvents(env, { date, startTime, hours, address
     makeEvent(`🚗 Travel to ${name}`, travelStart, cleanStart),
     makeEvent(`🧹 Apartment Cleaning — ${name}`, cleanStart, cleanEnd, {
       location: address,
-      description: `${hours}h cleaning session\nAddress: ${address}\nCustomer: ${name} <${email}>\nRate: $${hours * 40}`,
+      description: `${hours}h cleaning session\nAddress: ${address}\nCustomer: ${name} <${email}>\nRate: $${hours * 40}\n\nDeclining this calendar invite cancels the booking — the cleaner will not show up.`,
       attendees: [{ email }],
       sendUpdates: 'all',
     }),
@@ -159,11 +191,45 @@ export async function createBookingEvents(env, { date, startTime, hours, address
 
   const created = [];
   for (const event of events) {
-    const result = await calFetch(env, `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events`, {
+    const result = await calFetch(env, `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events?sendUpdates=all`, {
       method: 'POST',
       body: JSON.stringify(event),
     });
     created.push(result.id);
   }
-  return created;
+  return { bookingId, eventIds: created };
+}
+
+// Cancel any upcoming bookings where the customer attendee has declined the
+// calendar invite. Deletes all three events in the booking set (travel + cleaning
+// + travel) by looking them up via the shared `claw_booking_id` extended property.
+// Intended to be run from a cron trigger.
+export async function cancelDeclinedBookings(env) {
+  const timeMin = new Date().toISOString();
+  const listPath = `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events?timeMin=${encodeURIComponent(timeMin)}&maxResults=50&singleEvents=true&orderBy=startTime`;
+  const data = await calFetch(env, listPath);
+  const cancelled = [];
+
+  for (const ev of data.items || []) {
+    if (typeof ev.summary !== 'string' || !ev.summary.startsWith('🧹')) continue;
+    const customerEmail = ev.extendedProperties?.private?.claw_customer_email;
+    const bookingId = ev.extendedProperties?.private?.claw_booking_id;
+    if (!customerEmail || !bookingId) continue;
+
+    const declined = (ev.attendees || []).some(a => a.email?.toLowerCase() === customerEmail.toLowerCase() && a.responseStatus === 'declined');
+    if (!declined) continue;
+
+    const setPath = `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events?privateExtendedProperty=${encodeURIComponent(`claw_booking_id=${bookingId}`)}&maxResults=10&singleEvents=true`;
+    const setData = await calFetch(env, setPath);
+    for (const paired of setData.items || []) {
+      try {
+        await calFetch(env, `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events/${encodeURIComponent(paired.id)}?sendUpdates=none`, { method: 'DELETE' });
+      } catch (e) {
+        console.error('Failed to delete paired event', paired.id, e.message);
+      }
+    }
+    cancelled.push({ bookingId, customerEmail, summary: ev.summary });
+  }
+
+  return cancelled;
 }

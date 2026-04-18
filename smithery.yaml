@@ -6,12 +6,11 @@ startCommand:
 
 metadata:
   displayName: claw.cleaning
-  description: Book a San Francisco apartment cleaning via MCP. $40/hour, weekends, 8 AM to 6 PM PT, SF addresses only.
+  description: Book a San Francisco apartment cleaning via MCP. $40/hour, weekends, 8 AM to 6 PM PT, SF addresses only. No upfront payment — the customer pays the cleaner at the appointment.
   icon: ./assets/icon.svg
   categories:
     - services
     - scheduling
-    - payments
   homepage: https://claw.cleaning
   documentation: https://claw.cleaning/agents.txt
   license: MIT

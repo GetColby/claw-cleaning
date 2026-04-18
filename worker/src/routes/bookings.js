@@ -1,10 +1,6 @@
-import { isSlotFree, createBookingEvents } from '../lib/calendar.js';
-import {
-  RATE_CENTS,
-  createCheckoutSession,
-  getOrCreateCustomer,
-  getBookingsByEmail,
-} from '../lib/stripe.js';
+import { isSlotFree, createBookingEvents, getBookingsByEmail } from '../lib/calendar.js';
+
+const RATE_DOLLARS = 40; // $40/hour
 
 function isSatOrSun(dateStr) {
   const day = new Date(dateStr + 'T12:00:00Z').getUTCDay();
@@ -17,7 +13,7 @@ function isSFAddress(address) {
   return lower.includes('san francisco') || lower.includes(', sf,') || lower.includes(', sf ') || sfZipPattern.test(address);
 }
 
-function isPayInPersonBlocked(env, email) {
+function isEmailBlocked(env, email) {
   const raw = env.BLOCKED_PAYINPERSON_EMAILS;
   if (!raw) return false;
   const needle = email.trim().toLowerCase();
@@ -25,7 +21,7 @@ function isPayInPersonBlocked(env, email) {
 }
 
 function validateBookingBody(body) {
-  const { date, startTime, hours, address, name, email, payInPerson } = body || {};
+  const { date, startTime, hours, address, name, email } = body || {};
   if (!date || !startTime || !hours || !address || !name || !email) {
     return { error: 'Missing required fields: date, startTime, hours, address, name, email.' };
   }
@@ -36,7 +32,7 @@ function validateBookingBody(body) {
   if (!hoursNum || hoursNum < 1 || hoursNum > 8) return { error: 'Hours must be between 1 and 8.' };
   if (!isSFAddress(address)) return { error: 'Address must be in San Francisco, CA.' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Invalid email address.' };
-  return { ok: { date, startTime, hours: hoursNum, address, name, email, payInPerson: !!payInPerson } };
+  return { ok: { date, startTime, hours: hoursNum, address, name, email } };
 }
 
 export async function handleInitiateBooking(c) {
@@ -45,8 +41,15 @@ export async function handleInitiateBooking(c) {
 
   const validated = validateBookingBody(body);
   if (validated.error) return c.json({ error: validated.error }, 400);
-  const { date, startTime, hours, address, name, email, payInPerson } = validated.ok;
-  const total = hours * (RATE_CENTS / 100);
+  const { date, startTime, hours, address, name, email } = validated.ok;
+  const total = hours * RATE_DOLLARS;
+
+  if (isEmailBlocked(c.env, email)) {
+    return c.json({
+      error: 'This email is blocked from booking. Contact the operator at connor@getcolby.com.',
+      code: 'email_blocked',
+    }, 403);
+  }
 
   try {
     const free = await isSlotFree(c.env, date, startTime, hours);
@@ -54,52 +57,23 @@ export async function handleInitiateBooking(c) {
       return c.json({ error: 'That time slot is no longer available. Please check availability and choose another time.' }, 409);
     }
 
-    // Pay-on-completion — customer pays the cleaner in person. No Stripe.
-    if (payInPerson) {
-      if (isPayInPersonBlocked(c.env, email)) {
-        return c.json({
-          error: 'Pay-on-completion is not available for this email. Please book via Stripe checkout instead (omit payInPerson).',
-          code: 'pay_in_person_blocked',
-        }, 403);
-      }
-      try {
-        await createBookingEvents(c.env, { date, startTime, hours, address, name, email });
-      } catch (err) {
-        console.error('Calendar event creation failed (pay-in-person):', err);
-        return c.json({ error: 'Could not create calendar event. Please try again.' }, 500);
-      }
-      return c.json({
-        status: 'booked',
-        paymentMethod: 'in_person',
-        total: `$${total}`,
-        date, startTime, hours, address, email,
-        message: `Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}. Pay $${total} cash or card to the cleaner at the appointment.`,
-      });
+    try {
+      await createBookingEvents(c.env, { date, startTime, hours, address, name, email });
+    } catch (err) {
+      console.error('Calendar event creation failed:', err);
+      return c.json({ error: 'Could not create calendar event. Please try again.' }, 500);
     }
 
-    // Pay now — always via Stripe Checkout. Customer enters payment info every time.
-    const customer = await getOrCreateCustomer(c.env, { email, name });
-    const session = await createCheckoutSession(c.env, {
-      customer, date, startTime, hours, address, name, email,
-    });
-
     return c.json({
-      status: 'checkout_required',
-      checkoutUrl: session.url,
-      sessionId: session.id,
+      status: 'booked',
       total: `$${total}`,
-      message: `Share the checkoutUrl with the customer. They'll complete payment in their browser and receive a calendar invite at ${email} afterwards.`,
+      date, startTime, hours, address, email,
+      message: `Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}. Pay $${total} cash or card to the cleaner at the appointment.`,
     });
   } catch (err) {
     console.error('initiate_booking error:', err);
     return c.json({ error: 'Failed to initiate booking.' }, 500);
   }
-}
-
-function deriveStatus(booking) {
-  if (booking.paid) return booking.metadata.calendarBooked === 'true' ? 'booked' : 'processing';
-  if (booking.expired) return 'expired';
-  return 'pending';
 }
 
 export async function handleBookingStatus(c) {
@@ -108,20 +82,10 @@ export async function handleBookingStatus(c) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ error: 'Invalid email address.' }, 400);
 
   try {
-    const raw = await getBookingsByEmail(c.env, email);
-    const bookings = raw.map(b => ({
-      status: deriveStatus(b),
-      date: b.metadata.date,
-      startTime: b.metadata.startTime,
-      hours: b.metadata.hours,
-      address: b.metadata.address,
-      source: b.source,
-      id: b.id,
-      createdAt: b.created ? new Date(b.created * 1000).toISOString() : null,
-    }));
+    const bookings = await getBookingsByEmail(c.env, email);
     return c.json({ email, bookings });
   } catch (err) {
-    console.error(err);
+    console.error('booking status error:', err);
     return c.json({ error: 'Failed to fetch booking status.' }, 500);
   }
 }

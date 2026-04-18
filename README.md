@@ -43,8 +43,8 @@ https://claw.cleaning/mcp
 Three tools over MCP, all for booking an SF weekend apartment cleaning:
 
 - `check_availability` — list open weekend slots (Sat/Sun, 8am–6pm PT)
-- `initiate_booking` — start a booking; returns a Stripe checkout URL for pay-now, or books immediately for pay-in-person
-- `check_booking_status` — list a customer's bookings by email
+- `initiate_booking` — reserve a slot; calendar invite is sent immediately, customer pays the cleaner at the appointment ($40/hr)
+- `check_booking_status` — list a customer's upcoming bookings by email
 
 ## Other integration paths
 

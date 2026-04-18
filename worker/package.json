@@ -9,8 +9,7 @@
     "setup-auth": "node scripts/setup-google-auth.js"
   },
   "dependencies": {
-    "hono": "^4.7.7",
-    "stripe": "^17.7.0"
+    "hono": "^4.7.7"
   },
   "devDependencies": {
     "wrangler": "^4.12.0"

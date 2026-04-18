@@ -1,13 +1,8 @@
-import { getBusyIntervals, computeAvailableSlots, isSlotFree, createBookingEvents } from '../lib/calendar.js';
-import {
-  RATE_CENTS,
-  createCheckoutSession,
-  getOrCreateCustomer,
-  getBookingsByEmail,
-} from '../lib/stripe.js';
+import { getBusyIntervals, computeAvailableSlots, isSlotFree, createBookingEvents, getBookingsByEmail } from '../lib/calendar.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'claw-cleaning', version: '1.0.0' };
+const RATE_DOLLARS = 40;
 
 const TOOLS = [
   {
@@ -22,7 +17,7 @@ const TOOLS = [
   },
   {
     name: 'initiate_booking',
-    description: 'Start a booking. The customer picks how they want to pay:\n- **Pay on completion** (`payInPerson: true`): no Stripe, no card. Slot is booked immediately, calendar invite is sent, customer pays the cleaner in cash or card at the appointment. Returns `{ status: "booked", paymentMethod: "in_person" }`.\n- **Pay now** (omit `payInPerson` or set false): returns `{ status: "checkout_required", checkoutUrl, sessionId }`. Share the URL; the customer completes payment in their browser. A calendar invite is sent after payment clears. Payment info is entered fresh every time — nothing is saved or auto-charged.\nAlways ask the customer which payment option they want, then show a full booking preview (date, start, hours, address, total, email, payment method) and get explicit confirmation before calling this tool.',
+    description: 'Reserve a cleaning slot. No payment is collected up front — the customer pays the cleaner in cash or card at the appointment. Returns `{ status: "booked" }`, the slot is locked in the calendar, and a calendar invite is sent to the email. Always ask the customer for full details (date, start time, hours, address, name, email) and confirm the booking preview before calling this tool.',
     inputSchema: {
       type: 'object',
       required: ['date', 'startTime', 'hours', 'address', 'name', 'email'],
@@ -33,18 +28,17 @@ const TOOLS = [
         address: { type: 'string', description: 'Full street address. Must be in San Francisco, CA.' },
         name: { type: 'string', description: "Customer's full name." },
         email: { type: 'string', description: 'Customer email. Calendar invite goes here.' },
-        payInPerson: { type: 'boolean', description: 'If true, book without taking payment — customer pays the cleaner at the appointment. Defaults to false (Stripe checkout).' },
       },
     },
   },
   {
     name: 'check_booking_status',
-    description: 'List recent bookings for a customer by email, with payment/calendar status. Returns most recent first. Stripe search indexing can lag a few seconds behind a brand-new booking.',
+    description: 'List upcoming bookings for a customer by email. Queries Google Calendar directly, so results are live and reflect any bookings in the next ~20 events.',
     inputSchema: {
       type: 'object',
       required: ['email'],
       properties: {
-        email: { type: 'string', description: 'Customer email used during checkout.' },
+        email: { type: 'string', description: 'Customer email used when booking.' },
       },
     },
   },
@@ -73,7 +67,7 @@ function isSFAddress(address) {
   return lower.includes('san francisco') || lower.includes(', sf,') || lower.includes(', sf ') || sfZip.test(address);
 }
 
-function isPayInPersonBlocked(env, email) {
+function isEmailBlocked(env, email) {
   const raw = env.BLOCKED_PAYINPERSON_EMAILS;
   if (!raw) return false;
   const needle = email.trim().toLowerCase();
@@ -89,7 +83,7 @@ function toolError(message) {
 }
 
 function validateBookingArgs(args) {
-  const { date, startTime, hours, address, name: customer, email, payInPerson } = args;
+  const { date, startTime, hours, address, name: customer, email } = args;
   if (!date || !startTime || hours == null || !address || !customer || !email) {
     return { error: 'Missing required fields: date, startTime, hours, address, name, email.' };
   }
@@ -100,7 +94,7 @@ function validateBookingArgs(args) {
   if (!hoursNum || hoursNum < 1 || hoursNum > 8) return { error: 'Hours must be between 1 and 8.' };
   if (!isSFAddress(address)) return { error: 'Address must be in San Francisco, CA.' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Invalid email address.' };
-  return { ok: { date, startTime, hours: hoursNum, address, name: customer, email, payInPerson: !!payInPerson } };
+  return { ok: { date, startTime, hours: hoursNum, address, name: customer, email } };
 }
 
 async function runTool(env, name, args) {
@@ -125,65 +119,35 @@ async function runTool(env, name, args) {
   if (name === 'initiate_booking') {
     const v = validateBookingArgs(args);
     if (v.error) return toolError(v.error);
-    const { date, startTime, hours, address, name: customer, email, payInPerson } = v.ok;
-    const totalDollars = hours * (RATE_CENTS / 100);
+    const { date, startTime, hours, address, name: customer, email } = v.ok;
+    const totalDollars = hours * RATE_DOLLARS;
+
+    if (isEmailBlocked(env, email)) {
+      return toolError('This email is blocked from booking. Contact the operator at connor@getcolby.com.');
+    }
 
     const free = await isSlotFree(env, date, startTime, hours);
     if (!free) return toolError('That time slot is no longer available. Check availability and choose another time.');
 
-    if (payInPerson) {
-      if (isPayInPersonBlocked(env, email)) {
-        return toolError('Pay-on-completion is not available for this email. Please book via Stripe checkout (omit payInPerson) to pay upfront.');
-      }
-      try {
-        await createBookingEvents(env, { date, startTime, hours, address, name: customer, email });
-      } catch (err) {
-        console.error('Calendar event creation failed (pay-in-person):', err);
-        return toolError('Could not create calendar event. Please try again.');
-      }
-      return textResult({
-        status: 'booked',
-        paymentMethod: 'in_person',
-        total: `$${totalDollars}`,
-        date, startTime, hours, address, email,
-        message: `Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}. The customer pays $${totalDollars} to the cleaner at the appointment (cash or card).`,
-      });
+    try {
+      await createBookingEvents(env, { date, startTime, hours, address, name: customer, email });
+    } catch (err) {
+      console.error('Calendar event creation failed:', err);
+      return toolError('Could not create calendar event. Please try again.');
     }
-
-    // Pay now — always via Stripe Checkout. Fresh payment every time.
-    const customerObj = await getOrCreateCustomer(env, { email, name: customer });
-    const session = await createCheckoutSession(env, {
-      customer: customerObj, date, startTime, hours, address, name: customer, email,
-    });
     return textResult({
-      status: 'checkout_required',
-      checkoutUrl: session.url,
-      sessionId: session.id,
+      status: 'booked',
       total: `$${totalDollars}`,
-      message: `Share the checkoutUrl with the customer. They'll complete payment in their browser and a calendar invite will be sent to ${email} after payment clears.`,
+      date, startTime, hours, address, email,
+      message: `Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}. The customer pays $${totalDollars} to the cleaner at the appointment (cash or card).`,
     });
   }
 
   if (name === 'check_booking_status') {
     if (!args.email) return toolError('Missing email.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.email)) return toolError('Invalid email address.');
-    const raw = await getBookingsByEmail(env, args.email);
-    if (!raw.length) return textResult({ email: args.email, bookings: [], note: 'No bookings found. Stripe search indexing can lag a few seconds behind a new booking.' });
-    const bookings = raw.map(b => {
-      let status;
-      if (b.paid) status = b.metadata.calendarBooked === 'true' ? 'booked' : 'processing';
-      else if (b.expired) status = 'expired';
-      else status = 'pending';
-      return {
-        status,
-        date: b.metadata.date,
-        startTime: b.metadata.startTime,
-        hours: b.metadata.hours,
-        address: b.metadata.address,
-        source: b.source,
-        createdAt: b.created ? new Date(b.created * 1000).toISOString() : null,
-      };
-    });
+    const bookings = await getBookingsByEmail(env, args.email);
+    if (!bookings.length) return textResult({ email: args.email, bookings: [], note: 'No upcoming bookings found for this email.' });
     return textResult({ email: args.email, bookings });
   }
 
@@ -205,7 +169,7 @@ async function handleRpc(env, msg) {
         protocolVersion: params?.protocolVersion || PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: 'claw.cleaning books apartment cleanings in San Francisco. Saturdays and Sundays only, $40/hour. Two payment options: (1) pay on completion — pass `payInPerson: true` to initiate_booking, no Stripe, the customer pays the cleaner at the appointment; or (2) pay now via Stripe Checkout — the customer enters payment info in their browser for every booking. No cards are saved, no credentials are stored, no auto-charging. Always ask the customer which payment option they want, show a full booking preview, and get explicit confirmation before calling initiate_booking.',
+        instructions: 'claw.cleaning books apartment cleanings in San Francisco. Saturdays and Sundays only, $40/hour. No payment is collected up front — the customer pays the cleaner (cash or card) at the appointment. initiate_booking reserves the slot and sends a calendar invite immediately. Always show a full booking preview (date, start, hours, address, total, email) and get explicit confirmation before calling initiate_booking.',
       },
     };
   }

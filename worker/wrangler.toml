@@ -8,6 +8,10 @@ routes = [
   { pattern = "www.claw.cleaning", custom_domain = true },
 ]
 
+[triggers]
+# Every 15 minutes: cancel bookings the customer declined in their calendar.
+crons = ["*/15 * * * *"]
+
 [vars]
 TIMEZONE = "America/Los_Angeles"
 WORK_START_HOUR = "8"

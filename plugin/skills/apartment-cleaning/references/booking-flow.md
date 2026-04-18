@@ -2,9 +2,7 @@
 
 All interactions go through the `claw-cleaning` MCP server at `https://claw.cleaning/mcp`. The agent never runs a local CLI and never crafts HTTP calls by hand — it calls MCP tools.
 
-Two payment options:
-- **Pay now** — Stripe Checkout. The customer enters payment info in their browser for every booking. Nothing is saved or auto-charged.
-- **Pay on completion** — no payment up front; the customer pays the cleaner at the appointment.
+No payment is collected up front. The customer pays the cleaner (cash or card) at the appointment.
 
 ## Customer starts
 
@@ -46,7 +44,7 @@ Result:
 **Sunday, April 19:**
 - 9:00 AM (up to 8 hours, max $320)
 
-Rate is $40/hour. Which time works for you?"
+Rate is $40/hour, paid to the cleaner at the appointment. Which time works for you?"
 
 ---
 
@@ -54,13 +52,12 @@ Rate is $40/hour. Which time works for you?"
 
 **Customer:** "Saturday at 10, I need 3 hours"
 
-**Agent:** "Got it — 3 hours at $120 total. A few more things:
+**Agent:** "Got it — 3 hours at $120 total, paid to the cleaner. A few more things:
 - What's the full address? (Must be in San Francisco)
 - Your name?
-- Your email for the calendar invite?
-- How would you like to pay: now with a card via Stripe, or pay the cleaner in person at the appointment?"
+- Your email for the calendar invite?"
 
-**Customer:** "456 Castro St, San Francisco, CA 94114. Jane Smith, jane@example.com. I'll pay in person."
+**Customer:** "456 Castro St, San Francisco, CA 94114. Jane Smith, jane@example.com."
 
 ---
 
@@ -73,8 +70,7 @@ Rate is $40/hour. Which time works for you?"
 - **Address:** 456 Castro St, San Francisco, CA 94114
 - **Name:** Jane Smith
 - **Email:** jane@example.com
-- **Total:** $120
-- **Payment:** In person at the appointment (cash or card)
+- **Total:** $120 (cash or card to the cleaner at the appointment)
 
 Shall I proceed?"
 
@@ -82,38 +78,7 @@ Shall I proceed?"
 
 ---
 
-## Agent initiates booking (pay-on-completion path)
-
-Tool call: `initiate_booking`
-```json
-{
-  "date": "2026-04-18",
-  "startTime": "10:00",
-  "hours": 3,
-  "address": "456 Castro St, San Francisco, CA 94114",
-  "name": "Jane Smith",
-  "email": "jane@example.com",
-  "payInPerson": true
-}
-```
-
-Result:
-```json
-{
-  "status": "booked",
-  "paymentMethod": "in_person",
-  "total": "$120",
-  "message": "Cleaning confirmed for 2026-04-18 at 10:00 (3h). Calendar invite sent to jane@example.com. The customer pays $120 to the cleaner at the appointment (cash or card)."
-}
-```
-
-**Agent:** "You're booked! The calendar invite is on its way to jane@example.com. Please have $120 ready for the cleaner at the end of the session — they take cash or card."
-
----
-
-## Alternative — Pay now via Stripe
-
-If the customer had said "I'll pay now":
+## Agent initiates booking
 
 Tool call: `initiate_booking`
 ```json
@@ -130,27 +95,24 @@ Tool call: `initiate_booking`
 Result:
 ```json
 {
-  "status": "checkout_required",
-  "checkoutUrl": "https://checkout.stripe.com/pay/cs_test_...",
-  "sessionId": "cs_test_a1b2c3...",
+  "status": "booked",
   "total": "$120",
-  "message": "Share the checkoutUrl with the customer. They'll complete payment in their browser and a calendar invite will be sent to jane@example.com after payment clears."
+  "date": "2026-04-18",
+  "startTime": "10:00",
+  "hours": 3,
+  "address": "456 Castro St, San Francisco, CA 94114",
+  "email": "jane@example.com",
+  "message": "Cleaning confirmed for 2026-04-18 at 10:00 (3h). Calendar invite sent to jane@example.com. The customer pays $120 to the cleaner at the appointment (cash or card)."
 }
 ```
 
-**Agent:** "You're almost done! Click this link to complete payment:
-
-https://checkout.stripe.com/pay/cs_test_...
-
-After you pay, you'll get a calendar invite at jane@example.com. The cleaning is 10:00 AM – 1:00 PM on April 18th."
-
-Every Stripe booking uses a fresh checkout — cards aren't saved, there's no auto-charging, and repeat customers go through the same flow each time.
+**Agent:** "You're booked! The calendar invite is on its way to jane@example.com. Please have $120 ready for the cleaner at the end of the session — they take cash or card."
 
 ---
 
 ## Status check
 
-**Customer:** "Done, paid!"
+**Customer:** "Did that go through?"
 
 Optional — call `check_booking_status`:
 ```json
@@ -163,11 +125,11 @@ Result:
   "email": "jane@example.com",
   "bookings": [
     {
-      "status": "booked",
       "date": "2026-04-18",
       "startTime": "10:00",
-      "hours": "3",
-      "address": "456 Castro St, San Francisco, CA 94114"
+      "hours": 3,
+      "address": "456 Castro St, San Francisco, CA 94114",
+      "eventId": "..."
     }
   ]
 }
@@ -187,8 +149,9 @@ Result:
 `initiate_booking` returns an `isError` with "That time slot is no longer available."
 **Agent:** "That slot was just taken. Let me check what else is available..." — then call `check_availability` for the same date.
 
-### Refund (race condition, pay-now only)
-If a refund is issued, tell the customer: "We're sorry — your slot was taken by another booking right as your payment processed. A full refund has been issued. Let me find you another time."
+### Email blocked
+`initiate_booking` returns an `isError` with "This email is blocked from booking."
+**Agent:** "Your email has been blocked from booking through this service, usually because of a past no-show. Please contact the operator at connor@getcolby.com."
 
-### Pay-on-completion no-show
-Pay-on-completion relies on the customer being there. If they ask to cancel, they can email **connor@getcolby.com** at least 24 hours before the slot. Persistent no-shows may be required to pre-pay on future bookings.
+### No-show policy
+If the customer asks to cancel, they can email **connor@getcolby.com** at least 24 hours before the slot. Persistent no-shows may result in the email being blocked from future bookings.

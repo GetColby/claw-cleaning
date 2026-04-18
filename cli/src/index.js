@@ -17,20 +17,19 @@ program
 
 program
   .command('book')
-  .description('Book a cleaning session ($40/hour)')
+  .description('Book a cleaning session ($40/hour, paid to the cleaner at the appointment)')
   .requiredOption('--date <YYYY-MM-DD>', 'Date of cleaning (Saturday or Sunday)')
   .requiredOption('--start <HH:MM>', 'Start time in 24h format (e.g. 10:00)')
   .requiredOption('--hours <N>', 'Number of hours (1–8)')
   .requiredOption('--address <address>', 'Full address in San Francisco, CA')
   .requiredOption('--name <name>', 'Your name')
   .requiredOption('--email <email>', 'Your email (calendar invite will be sent here)')
-  .option('--pay-on-completion', 'Skip Stripe and pay the cleaner in person at the appointment')
   .action(bookCommand);
 
 program
   .command('status')
-  .description('List bookings for a customer by email')
-  .requiredOption('--email <email>', 'Customer email used at checkout')
+  .description('List upcoming bookings for a customer by email')
+  .requiredOption('--email <email>', 'Customer email used when booking')
   .action(statusCommand);
 
 program.parse();

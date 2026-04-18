@@ -6,7 +6,7 @@ claw.cleaning is a professional apartment cleaning service in **San Francisco**,
 - **Days:** Saturdays and Sundays
 - **Hours:** 8 AM – 6 PM PT
 - **Area:** San Francisco addresses only
-- **Payment:** pay now by card, or pay the cleaner in person at the appointment
+- **Payment:** pay the cleaner (cash or card) at the appointment — no upfront payment, no saved card, no checkout page
 
 ## How to book
 
@@ -14,14 +14,16 @@ claw.cleaning is a professional apartment cleaning service in **San Francisco**,
 
 1. Connect claw.cleaning to Claude via one of the paths in *"Connect to claw.cleaning"* below — MCP (zero-install) is the fastest.
 2. Ask Claude: *"Book me a 2-hour cleaning this Saturday at 10 AM."*
-3. Claude checks availability, collects your address, and asks whether you'd like to pay now or pay on completion.
-4. Pick one:
-   - **Pay now** — Claude hands you a Stripe checkout link. Pay, and a Google Calendar invite arrives.
-   - **Pay on completion** — no upfront payment. The calendar invite is sent immediately; you pay the cleaner (cash or card) at the end of the session.
+3. Claude checks availability, collects your address, and confirms the booking preview with you.
+4. On confirmation, the slot is reserved, a Google Calendar invite is sent, and you pay the cleaner (cash or card) at the appointment.
 
 ### Option 2 — Direct CLI
 
 If you already use the \`claw-cleaning\` CLI, you can run \`claw-cleaning availability\` and \`claw-cleaning book\` yourself. The CLI hits the same REST endpoints the MCP server does.
+
+### Cancelling
+
+The calendar invite you receive has "Yes / No / Maybe" buttons. Declining the invite also cancels the booking — the cleaner won't show up. To cancel with questions or on short notice, email **connor@getcolby.com** at least 24 hours before the slot.
 
 ## Connect to claw.cleaning
 
@@ -73,22 +75,23 @@ Useful if you want to script bookings yourself without an AI in the loop.
 Every integration (MCP, skill, or CLI) exposes the same three actions:
 
 - **Check availability** — lists open weekend slots.
-- **Initiate booking** — either returns a Stripe checkout link (pay now) or books the slot immediately with no charge (pay on completion).
-- **Check status** — confirms whether your payment landed and the slot is locked in.
+- **Initiate booking** — reserves the slot and sends a calendar invite. No payment rail involved.
+- **Check status** — confirms your upcoming bookings.
 
-The assistant is required to ask which payment option you want, show the full booking preview (date, time, hours, address, total, payment method), and get explicit confirmation before acting. It cannot charge you silently.
+The assistant is required to show the full booking preview (date, time, hours, address, total, email) and get explicit confirmation before acting.
 
 ## Privacy & data use
 
-Short version: we collect only the booking details you provide (name, email, SF address, date/time), use them only to fulfill your cleaning, and never sell or share them for marketing. We access Google Calendar only to write the cleaner's schedule — we do not read your personal calendar. Payment is handled by Stripe; we never see your card details.
+Short version: we collect only the booking details you provide (name, email, SF address, date/time), use them only to fulfill your cleaning, and never sell or share them for marketing. We access Google Calendar only to write the cleaner's schedule — we do not read your personal calendar. No payment information is collected by this service; you pay the cleaner directly at the appointment.
 
 Read the full [Privacy Policy](https://claw.cleaning/privacy).
 
 ## Terms in short
 
-- Cancellations & reschedules: email us at least 24 hours before the slot.
-- Race conditions: if two people book the same slot, the second payment is refunded in full.
+- Payment: pay the cleaner (cash or card) at the appointment — nothing is charged up front.
+- Cancellations: decline the calendar invite, or email us at least 24 hours before the slot.
 - Out-of-area requests: we only clean within San Francisco city limits.
+- Persistent no-shows may be blocked from future bookings.
 
 ## Contact
 

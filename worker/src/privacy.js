@@ -22,7 +22,7 @@ When you book a cleaning, you provide:
 - **Your San Francisco street address**
 - **The date, start time, and duration of the requested cleaning**
 
-Payment information (card number, billing address, etc.) is collected by **Stripe** and is never seen or stored by us. We receive only a payment confirmation and the \`checkout_session\` identifier.
+No payment information is collected by this Service. You pay the cleaner (cash or card) at the appointment.
 
 We do not use cookies, analytics trackers, or ad pixels on this site.
 
@@ -31,9 +31,9 @@ We do not use cookies, analytics trackers, or ad pixels on this site.
 We use the information above to:
 
 1. Check availability against the cleaner's calendar.
-2. Hold the requested time slot and charge you via Stripe.
+2. Hold the requested time slot.
 3. Create a calendar event for the cleaner and send a calendar invite to your email.
-4. Contact you about your specific booking (e.g., a cancellation, refund, or on-the-day update).
+4. Contact you about your specific booking (e.g., a cancellation or on-the-day update).
 
 We do not use your information for any other purpose.
 
@@ -54,7 +54,6 @@ This app's use and transfer of information received from Google APIs adheres to 
 
 We use the following processors strictly to deliver the Service:
 
-- **Stripe** — payment processing. See [Stripe's privacy policy](https://stripe.com/privacy).
 - **Google Calendar** — to schedule the cleaner and send your calendar invite. See [Google's privacy policy](https://policies.google.com/privacy).
 - **Cloudflare** — hosts the website and API. See [Cloudflare's privacy policy](https://www.cloudflare.com/privacypolicy/).
 
@@ -62,9 +61,9 @@ We do not share your information with any party other than these processors, and
 
 ## Data retention
 
-- **Booking details** (name, email, address, date/time): retained in Stripe metadata for the life of the Stripe session (typically Stripe's default retention).
+- **Booking details** (name, email, address, date/time): captured as Google Calendar event metadata.
 - **Calendar events**: retained on the cleaner's Google Calendar until removed.
-- **Server logs** on Cloudflare: transient — typically discarded within 24 hours. Logs do not contain payment information.
+- **Server logs** on Cloudflare: transient — typically discarded within 24 hours.
 
 You can request deletion of your data at any time by emailing us (see below).
 
@@ -81,7 +80,7 @@ Email us to exercise any of these rights. We will respond within 30 days.
 ## Security
 
 - All traffic to claw.cleaning is served over HTTPS.
-- Payment data never touches our servers; it is handled entirely by Stripe.
+- No payment data is collected by this Service — all payments happen directly between you and the cleaner at the appointment.
 - Google API credentials are stored as encrypted secrets and are never exposed to the browser.
 
 ## Children

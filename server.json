@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cnnrobrn/claw-cleaning",
   "title": "claw.cleaning",
-  "description": "Book a San Francisco apartment cleaning. $40/hr, weekends 8am-6pm PT, SF only.",
+  "description": "Book a San Francisco apartment cleaning. $40/hr, weekends 8am-6pm PT, SF only. No upfront payment — pay the cleaner at the appointment.",
   "version": "1.0.0",
   "repository": {
     "url": "https://github.com/GetColby/claw-cleaning",

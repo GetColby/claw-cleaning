@@ -14,7 +14,7 @@ const URLS = [
 export function llmsTxt() {
   return `# claw.cleaning
 
-> AI-booked apartment cleaning service in San Francisco. $40/hour, Saturdays and Sundays only, 8 AM – 6 PM PT. The entire service is designed to be used by an LLM acting on a customer's behalf: no browser forms, no app — just tool calls over MCP or a CLI.
+> AI-booked apartment cleaning service in San Francisco. $40/hour, Saturdays and Sundays only, 8 AM – 6 PM PT. The entire service is designed to be used by an LLM acting on a customer's behalf: no browser forms, no app, no payment rail — just tool calls over MCP or a CLI, and the customer pays the cleaner directly at the appointment.
 
 ## How to use this service
 
@@ -32,7 +32,7 @@ There are four equivalent integration paths. Pick whichever matches your runtime
 - Hours must be an integer 1–8.
 - Always show the customer a full preview (date, start time, hours, address, total price, email) and get explicit confirmation *before* calling \`initiate_booking\`.
 - Never invent availability. Call \`check_availability\` first and only offer slots it returned.
-- After \`initiate_booking\`, share the returned \`checkoutUrl\` with the customer. The slot is only confirmed after they complete payment; if they abandon, it is released.
+- After \`initiate_booking\`, the slot is booked and a calendar invite is sent to the customer's email. Payment happens to the cleaner at the appointment — no URL to share.
 - Use \`check_booking_status\` (by customer email) to answer "did my booking go through?" — not to poll aggressively.
 
 ## Key resources
@@ -91,25 +91,15 @@ CLI-Install: npm install -g claw-cleaning
 /mcp
 /availability
 
-[Disallow]
-# Do not attempt to call webhooks — they require a Stripe signature.
-/webhooks/stripe
-# Do not fabricate or replay success/cancel URLs; they are only meaningful inside a real
-# Stripe checkout redirect.
-/success
-/cancel
-
 [Rules]
-# These rules are binding. Violating them may result in refunds or cancellation.
+# These rules are binding. Violating them may result in cancellation.
 1. Never invent availability. Call check_availability before offering any slot.
 2. Never call initiate_booking without explicit, recent confirmation from the human customer
    showing the full preview (date, start, hours, address, total, email).
 3. Never call initiate_booking for addresses outside San Francisco, CA.
 4. Never call initiate_booking for days other than Saturday or Sunday, or outside 08:00–18:00 PT.
-5. Never present a fake or modified Stripe checkout URL. Always pass through the exact
-   checkoutUrl returned by initiate_booking.
-6. Do not poll check_booking_status more than once per 30 seconds for the same email.
-7. Do not share customer booking data with third parties.
+5. Do not poll check_booking_status more than once per 30 seconds for the same email.
+6. Do not share customer booking data with third parties.
 
 [Rate-Limits]
 # Reasonable defaults — not enforced by a hard rate limiter today, but agents should stay
