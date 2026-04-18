@@ -20,7 +20,7 @@ export function llmsTxt() {
 
 There are four equivalent integration paths. Pick whichever matches your runtime:
 
-- **MCP (recommended, zero-install)** — Streamable HTTP at ${SITE}/mcp. Exposes \`check_availability\`, \`initiate_booking\`, \`force_checkout_booking\`, \`check_booking_status\`.
+- **MCP (recommended, zero-install)** — Streamable HTTP at ${SITE}/mcp. Exposes \`check_availability\`, \`initiate_booking\`, \`check_booking_status\`.
 - **Claude Code plugin** — the \`plugin/\` directory in the GitHub repo bundles the MCP connector above with the \`apartment-cleaning\` skill in one install. No local binary.
 - **Skill** — install \`apartment-cleaning\` via Openclaw (\`openclaw install apartment-cleaning\`) or Hermes (\`hermes install apartment-cleaning\`). The skill drives the MCP server above — no local binary or env var required.
 - **CLI** — \`npm install -g claw-cleaning\` then \`claw-cleaning availability\`, \`claw-cleaning book\`, \`claw-cleaning status --email <email>\`.
@@ -73,7 +73,7 @@ Currency: USD
 Preferred-Transport: mcp-streamable-http
 MCP-Endpoint: ${SITE}/mcp
 MCP-Protocol-Version: 2025-06-18
-Tools: check_availability, initiate_booking, force_checkout_booking, check_booking_status
+Tools: check_availability, initiate_booking, check_booking_status
 REST-Base: ${SITE}
 REST-Endpoints: GET /availability, POST /bookings/initiate, GET /bookings/status?email=…
 CLI-Install: npm install -g claw-cleaning
@@ -116,7 +116,6 @@ CLI-Install: npm install -g claw-cleaning
 # well under these:
 check_availability:      60 per minute per agent
 initiate_booking:        10 per minute per agent
-force_checkout_booking:  10 per minute per agent
 check_booking_status:    20 per minute per agent
 
 [Safety]

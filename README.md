@@ -40,12 +40,11 @@ https://claw.cleaning/mcp
 
 ## What the server does
 
-Four tools over MCP, all for booking an SF weekend apartment cleaning:
+Three tools over MCP, all for booking an SF weekend apartment cleaning:
 
 - `check_availability` — list open weekend slots (Sat/Sun, 8am–6pm PT)
-- `initiate_booking` — start a booking; returns a Stripe checkout URL or charges a saved card
+- `initiate_booking` — start a booking; returns a Stripe checkout URL for pay-now, or books immediately for pay-in-person
 - `check_booking_status` — list a customer's bookings by email
-- `force_checkout_booking` — force a fresh checkout URL (e.g., after a card decline)
 
 ## Other integration paths
 

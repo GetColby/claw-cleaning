@@ -2,10 +2,7 @@ import { isSlotFree, createBookingEvents } from '../lib/calendar.js';
 import {
   RATE_CENTS,
   createCheckoutSession,
-  chargeSavedCard,
-  getCustomerWithSavedCard,
   getOrCreateCustomer,
-  refundPaymentIntent,
   getBookingsByEmail,
 } from '../lib/stripe.js';
 
@@ -18,6 +15,13 @@ function isSFAddress(address) {
   const lower = address.toLowerCase();
   const sfZipPattern = /\b94(10[2-9]|1[1-6][0-9]|17[0-7])\b/;
   return lower.includes('san francisco') || lower.includes(', sf,') || lower.includes(', sf ') || sfZipPattern.test(address);
+}
+
+function isPayInPersonBlocked(env, email) {
+  const raw = env.BLOCKED_PAYINPERSON_EMAILS;
+  if (!raw) return false;
+  const needle = email.trim().toLowerCase();
+  return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(needle);
 }
 
 function validateBookingBody(body) {
@@ -50,8 +54,14 @@ export async function handleInitiateBooking(c) {
       return c.json({ error: 'That time slot is no longer available. Please check availability and choose another time.' }, 409);
     }
 
-    // Pay-on-completion path — customer pays the cleaner in person. No Stripe.
+    // Pay-on-completion — customer pays the cleaner in person. No Stripe.
     if (payInPerson) {
+      if (isPayInPersonBlocked(c.env, email)) {
+        return c.json({
+          error: 'Pay-on-completion is not available for this email. Please book via Stripe checkout instead (omit payInPerson).',
+          code: 'pay_in_person_blocked',
+        }, 403);
+      }
       try {
         await createBookingEvents(c.env, { date, startTime, hours, address, name, email });
       } catch (err) {
@@ -67,56 +77,7 @@ export async function handleInitiateBooking(c) {
       });
     }
 
-    const saved = await getCustomerWithSavedCard(c.env, email);
-
-    // Repeat customer path — charge the saved card directly, no browser.
-    if (saved) {
-      let intent;
-      try {
-        intent = await chargeSavedCard(c.env, {
-          customer: saved.customer,
-          paymentMethod: saved.paymentMethod,
-          hours, date, startTime, address, name, email,
-        });
-      } catch (err) {
-        console.error('Off-session charge failed:', err.stripeCode, err.stripeDeclineCode, err.message);
-        return c.json({
-          error: err.message,
-          code: err.stripeCode,
-          declineCode: err.stripeDeclineCode,
-          requiresAction: !!err.requiresAction,
-          paymentIntentId: err.paymentIntentId,
-          message: err.requiresAction
-            ? 'The card on file requires additional verification. The customer needs to make a fresh booking via a checkout URL to re-authorize.'
-            : 'The card on file was declined. The customer should try a different card by making a fresh booking via a checkout URL.',
-        }, 402);
-      }
-
-      // Race-condition recheck after payment
-      const stillFree = await isSlotFree(c.env, date, startTime, hours);
-      if (!stillFree) {
-        await refundPaymentIntent(c.env, intent.id).catch(e => console.error('Refund failed:', e));
-        return c.json({ error: 'That time slot was just taken. Full refund issued. Please check availability and choose another time.' }, 409);
-      }
-
-      try {
-        await createBookingEvents(c.env, { date, startTime, hours, address, name, email });
-      } catch (err) {
-        console.error('Calendar event creation failed, refunding:', err);
-        await refundPaymentIntent(c.env, intent.id).catch(e => console.error('Refund failed:', e));
-        return c.json({ error: 'Could not create calendar event. Full refund issued. Please try again.' }, 500);
-      }
-
-      return c.json({
-        status: 'booked',
-        paymentIntentId: intent.id,
-        total: `$${total}`,
-        date, startTime, hours, address, email,
-        message: `Charged the card on file. Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}.`,
-      });
-    }
-
-    // First-time customer path — Stripe Checkout saves the card for next time.
+    // Pay now — always via Stripe Checkout. Customer enters payment info every time.
     const customer = await getOrCreateCustomer(c.env, { email, name });
     const session = await createCheckoutSession(c.env, {
       customer, date, startTime, hours, address, name, email,
@@ -127,7 +88,7 @@ export async function handleInitiateBooking(c) {
       checkoutUrl: session.url,
       sessionId: session.id,
       total: `$${total}`,
-      message: `First-time booking — customer must complete payment at checkoutUrl. Their card will be saved, so future bookings with email "${email}" will charge automatically without a browser.`,
+      message: `Share the checkoutUrl with the customer. They'll complete payment in their browser and receive a calendar invite at ${email} afterwards.`,
     });
   } catch (err) {
     console.error('initiate_booking error:', err);

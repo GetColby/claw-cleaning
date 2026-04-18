@@ -2,10 +2,7 @@ import { getBusyIntervals, computeAvailableSlots, isSlotFree, createBookingEvent
 import {
   RATE_CENTS,
   createCheckoutSession,
-  chargeSavedCard,
-  getCustomerWithSavedCard,
   getOrCreateCustomer,
-  refundPaymentIntent,
   getBookingsByEmail,
 } from '../lib/stripe.js';
 
@@ -25,7 +22,7 @@ const TOOLS = [
   },
   {
     name: 'initiate_booking',
-    description: 'Start a booking. The customer picks how they want to pay:\n- **Pay on completion** (`payInPerson: true`): no Stripe, no card. Slot is booked immediately, calendar invite is sent, customer pays the cleaner in cash or card at the appointment. Returns `{ status: "booked", paymentMethod: "in_person" }`.\n- **Pay now** (`payInPerson` omitted or false): behavior depends on payment history:\n  - First-time customer (no saved card for this email): returns `{ status: "checkout_required", checkoutUrl }`. Share the URL; the customer pays once in their browser and their card is saved for next time.\n  - Returning customer (has a saved card): charges the card on file immediately, creates the calendar event, and returns `{ status: "booked" }`. No URL needed.\n  - Charge failure on a returning customer: returns `{ error, code, requiresAction }`. Tell the customer the card was declined and offer to retry — a retry will fall back to a fresh checkout URL they can use with a different card.\nAlways ask the customer which payment option they want, then show a full booking preview (date, start, hours, address, total, email, payment method) and get explicit confirmation before calling this tool.',
+    description: 'Start a booking. The customer picks how they want to pay:\n- **Pay on completion** (`payInPerson: true`): no Stripe, no card. Slot is booked immediately, calendar invite is sent, customer pays the cleaner in cash or card at the appointment. Returns `{ status: "booked", paymentMethod: "in_person" }`.\n- **Pay now** (omit `payInPerson` or set false): returns `{ status: "checkout_required", checkoutUrl, sessionId }`. Share the URL; the customer completes payment in their browser. A calendar invite is sent after payment clears. Payment info is entered fresh every time — nothing is saved or auto-charged.\nAlways ask the customer which payment option they want, then show a full booking preview (date, start, hours, address, total, email, payment method) and get explicit confirmation before calling this tool.',
     inputSchema: {
       type: 'object',
       required: ['date', 'startTime', 'hours', 'address', 'name', 'email'],
@@ -35,35 +32,19 @@ const TOOLS = [
         hours: { type: 'integer', minimum: 1, maximum: 8, description: 'Number of hours (1–8). $40/hour.' },
         address: { type: 'string', description: 'Full street address. Must be in San Francisco, CA.' },
         name: { type: 'string', description: "Customer's full name." },
-        email: { type: 'string', description: 'Customer email. Used to identify repeat customers and deliver the calendar invite.' },
-        payInPerson: { type: 'boolean', description: 'If true, book without taking payment — customer pays the cleaner in cash or card at the appointment. Defaults to false (Stripe flow).' },
+        email: { type: 'string', description: 'Customer email. Calendar invite goes here.' },
+        payInPerson: { type: 'boolean', description: 'If true, book without taking payment — customer pays the cleaner at the appointment. Defaults to false (Stripe checkout).' },
       },
     },
   },
   {
     name: 'check_booking_status',
-    description: 'List the bookings for a customer by email, with payment/calendar status for each. Returns most recent first. Covers both first-time (Stripe Checkout) and repeat (direct charge) bookings. Stripe search indexing can lag a few seconds behind a brand-new booking.',
+    description: 'List recent bookings for a customer by email, with payment/calendar status. Returns most recent first. Stripe search indexing can lag a few seconds behind a brand-new booking.',
     inputSchema: {
       type: 'object',
       required: ['email'],
       properties: {
         email: { type: 'string', description: 'Customer email used during checkout.' },
-      },
-    },
-  },
-  {
-    name: 'force_checkout_booking',
-    description: 'Like `initiate_booking`, but always returns a Stripe checkout URL even for returning customers. Use this when a returning customer\'s saved card was declined and you want to give them a fresh browser checkout to try another card.',
-    inputSchema: {
-      type: 'object',
-      required: ['date', 'startTime', 'hours', 'address', 'name', 'email'],
-      properties: {
-        date: { type: 'string', description: 'YYYY-MM-DD. Must be Saturday or Sunday.' },
-        startTime: { type: 'string', description: '24h HH:MM, between 08:00 and 18:00 PT.' },
-        hours: { type: 'integer', minimum: 1, maximum: 8, description: 'Number of hours (1–8). $40/hour.' },
-        address: { type: 'string', description: 'Full street address. Must be in San Francisco, CA.' },
-        name: { type: 'string', description: "Customer's full name." },
-        email: { type: 'string', description: 'Customer email.' },
       },
     },
   },
@@ -90,6 +71,13 @@ function isSFAddress(address) {
   const lower = address.toLowerCase();
   const sfZip = /\b94(10[2-9]|1[1-6][0-9]|17[0-7])\b/;
   return lower.includes('san francisco') || lower.includes(', sf,') || lower.includes(', sf ') || sfZip.test(address);
+}
+
+function isPayInPersonBlocked(env, email) {
+  const raw = env.BLOCKED_PAYINPERSON_EMAILS;
+  if (!raw) return false;
+  const needle = email.trim().toLowerCase();
+  return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(needle);
 }
 
 function textResult(obj) {
@@ -134,7 +122,7 @@ async function runTool(env, name, args) {
     return textResult({ weekends });
   }
 
-  if (name === 'initiate_booking' || name === 'force_checkout_booking') {
+  if (name === 'initiate_booking') {
     const v = validateBookingArgs(args);
     if (v.error) return toolError(v.error);
     const { date, startTime, hours, address, name: customer, email, payInPerson } = v.ok;
@@ -143,8 +131,10 @@ async function runTool(env, name, args) {
     const free = await isSlotFree(env, date, startTime, hours);
     if (!free) return toolError('That time slot is no longer available. Check availability and choose another time.');
 
-    // Pay-on-completion path — no Stripe. `force_checkout_booking` ignores this since its whole point is to return a checkout URL.
-    if (payInPerson && name === 'initiate_booking') {
+    if (payInPerson) {
+      if (isPayInPersonBlocked(env, email)) {
+        return toolError('Pay-on-completion is not available for this email. Please book via Stripe checkout (omit payInPerson) to pay upfront.');
+      }
       try {
         await createBookingEvents(env, { date, startTime, hours, address, name: customer, email });
       } catch (err) {
@@ -160,52 +150,7 @@ async function runTool(env, name, args) {
       });
     }
 
-    const forceCheckout = name === 'force_checkout_booking';
-    const saved = forceCheckout ? null : await getCustomerWithSavedCard(env, email);
-
-    if (saved) {
-      let intent;
-      try {
-        intent = await chargeSavedCard(env, {
-          customer: saved.customer,
-          paymentMethod: saved.paymentMethod,
-          hours, date, startTime, address, name: customer, email,
-        });
-      } catch (err) {
-        return textResult({
-          status: 'charge_failed',
-          error: err.message,
-          code: err.stripeCode,
-          declineCode: err.stripeDeclineCode,
-          requiresAction: !!err.requiresAction,
-          hint: 'The saved card was declined or needs 3DS. Call `force_checkout_booking` with the same arguments to give the customer a fresh checkout URL where they can use another card.',
-        });
-      }
-
-      const stillFree = await isSlotFree(env, date, startTime, hours);
-      if (!stillFree) {
-        await refundPaymentIntent(env, intent.id).catch(e => console.error('Refund failed:', e));
-        return toolError('That time slot was just taken. Full refund issued — check availability and choose another time.');
-      }
-
-      try {
-        await createBookingEvents(env, { date, startTime, hours, address, name: customer, email });
-      } catch (err) {
-        console.error('Calendar event creation failed, refunding:', err);
-        await refundPaymentIntent(env, intent.id).catch(e => console.error('Refund failed:', e));
-        return toolError('Could not create calendar event. Full refund issued — please try again.');
-      }
-
-      return textResult({
-        status: 'booked',
-        paymentIntentId: intent.id,
-        total: `$${totalDollars}`,
-        date, startTime, hours, address, email,
-        message: `Charged the card on file. Cleaning confirmed. Calendar invite sent to ${email}.`,
-      });
-    }
-
-    // First-time (or forced) — Stripe Checkout.
+    // Pay now — always via Stripe Checkout. Fresh payment every time.
     const customerObj = await getOrCreateCustomer(env, { email, name: customer });
     const session = await createCheckoutSession(env, {
       customer: customerObj, date, startTime, hours, address, name: customer, email,
@@ -215,7 +160,7 @@ async function runTool(env, name, args) {
       checkoutUrl: session.url,
       sessionId: session.id,
       total: `$${totalDollars}`,
-      message: `Share the checkoutUrl with the customer. Their card will be saved; future bookings with email "${email}" will charge automatically without a browser.`,
+      message: `Share the checkoutUrl with the customer. They'll complete payment in their browser and a calendar invite will be sent to ${email} after payment clears.`,
     });
   }
 
@@ -260,7 +205,7 @@ async function handleRpc(env, msg) {
         protocolVersion: params?.protocolVersion || PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: 'claw.cleaning books apartment cleanings in San Francisco. Saturdays and Sundays only, $40/hour. Customers choose how to pay: (1) pay on completion — pass `payInPerson: true` to initiate_booking, no Stripe needed, the customer pays the cleaner at the appointment; or (2) pay now via Stripe — first-time customers get a checkout URL (their card is saved), repeat customers are charged automatically on file. Always ask the customer which payment option they want, then show a full booking preview and get explicit confirmation before calling initiate_booking.',
+        instructions: 'claw.cleaning books apartment cleanings in San Francisco. Saturdays and Sundays only, $40/hour. Two payment options: (1) pay on completion — pass `payInPerson: true` to initiate_booking, no Stripe, the customer pays the cleaner at the appointment; or (2) pay now via Stripe Checkout — the customer enters payment info in their browser for every booking. No cards are saved, no credentials are stored, no auto-charging. Always ask the customer which payment option they want, show a full booking preview, and get explicit confirmation before calling initiate_booking.',
       },
     };
   }
@@ -285,7 +230,6 @@ async function handleRpc(env, msg) {
     return { jsonrpc: '2.0', id, result: {} };
   }
 
-  // Notifications: no response
   if (id === undefined || id === null) return null;
 
   return jsonRpcError(id, -32601, `Method not found: ${method}`);

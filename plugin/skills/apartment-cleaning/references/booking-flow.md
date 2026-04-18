@@ -2,6 +2,10 @@
 
 All interactions go through the `claw-cleaning` MCP server at `https://claw.cleaning/mcp`. The agent never runs a local CLI and never crafts HTTP calls by hand — it calls MCP tools.
 
+Two payment options:
+- **Pay now** — Stripe Checkout. The customer enters payment info in their browser for every booking. Nothing is saved or auto-charged.
+- **Pay on completion** — no payment up front; the customer pays the cleaner at the appointment.
+
 ## Customer starts
 
 **Customer:** "Hey, I want to book an apartment cleaning"
@@ -54,7 +58,7 @@ Rate is $40/hour. Which time works for you?"
 - What's the full address? (Must be in San Francisco)
 - Your name?
 - Your email for the calendar invite?
-- How would you like to pay: now with a card, or pay the cleaner in person at the appointment?"
+- How would you like to pay: now with a card via Stripe, or pay the cleaner in person at the appointment?"
 
 **Customer:** "456 Castro St, San Francisco, CA 94114. Jane Smith, jane@example.com. I'll pay in person."
 
@@ -107,7 +111,7 @@ Result:
 
 ---
 
-## Alternative — Pay now via Stripe (first-time customer)
+## Alternative — Pay now via Stripe
 
 If the customer had said "I'll pay now":
 
@@ -123,13 +127,14 @@ Tool call: `initiate_booking`
 }
 ```
 
-Result (first-time customer):
+Result:
 ```json
 {
   "status": "checkout_required",
   "checkoutUrl": "https://checkout.stripe.com/pay/cs_test_...",
+  "sessionId": "cs_test_a1b2c3...",
   "total": "$120",
-  "message": "Share the checkoutUrl with the customer. Their card will be saved; future bookings with email \"jane@example.com\" will charge automatically without a browser."
+  "message": "Share the checkoutUrl with the customer. They'll complete payment in their browser and a calendar invite will be sent to jane@example.com after payment clears."
 }
 ```
 
@@ -139,26 +144,11 @@ https://checkout.stripe.com/pay/cs_test_...
 
 After you pay, you'll get a calendar invite at jane@example.com. The cleaning is 10:00 AM – 1:00 PM on April 18th."
 
----
-
-## Alternative — Pay now via Stripe (returning customer)
-
-Same `initiate_booking` call, but the email already has a saved card:
-
-```json
-{
-  "status": "booked",
-  "paymentIntentId": "pi_...",
-  "total": "$120",
-  "message": "Charged the card on file. Cleaning confirmed. Calendar invite sent to jane@example.com."
-}
-```
-
-**Agent:** "All set — I charged the card on file. Your cleaning is confirmed for April 18th at 10:00 AM, and a calendar invite is on its way to jane@example.com."
+Every Stripe booking uses a fresh checkout — cards aren't saved, there's no auto-charging, and repeat customers go through the same flow each time.
 
 ---
 
-## Status check (pay-now path)
+## Status check
 
 **Customer:** "Done, paid!"
 
@@ -196,17 +186,6 @@ Result:
 ### Slot unavailable
 `initiate_booking` returns an `isError` with "That time slot is no longer available."
 **Agent:** "That slot was just taken. Let me check what else is available..." — then call `check_availability` for the same date.
-
-### Saved card declined (returning customer)
-`initiate_booking` returns:
-```json
-{
-  "status": "charge_failed",
-  "error": "Your card was declined.",
-  "hint": "The saved card was declined or needs 3DS. Call `force_checkout_booking` with the same arguments to give the customer a fresh checkout URL where they can use another card."
-}
-```
-**Agent:** "Your card on file was declined. Want me to generate a fresh checkout link so you can use a different card?" — on "yes", call `force_checkout_booking` with the same booking arguments and share the returned `checkoutUrl`.
 
 ### Refund (race condition, pay-now only)
 If a refund is issued, tell the customer: "We're sorry — your slot was taken by another booking right as your payment processed. A full refund has been issued. Let me find you another time."

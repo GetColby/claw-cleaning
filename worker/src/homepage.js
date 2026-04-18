@@ -35,7 +35,7 @@ claw.cleaning speaks the [Model Context Protocol](https://modelcontextprotocol.i
 https://claw.cleaning/mcp
 \`\`\`
 
-Add that URL as a custom connector in Claude.ai, Claude Desktop, Cursor, Windsurf, or any MCP client. The server exposes four tools: \`check_availability\`, \`initiate_booking\`, \`force_checkout_booking\`, and \`check_booking_status\`. A \`GET\` to the same URL returns server metadata.
+Add that URL as a custom connector in Claude.ai, Claude Desktop, Cursor, Windsurf, or any MCP client. The server exposes three tools: \`check_availability\`, \`initiate_booking\`, and \`check_booking_status\`. A \`GET\` to the same URL returns server metadata.
 
 ### Option B — Claude Code plugin
 

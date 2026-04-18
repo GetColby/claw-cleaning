@@ -1,7 +1,7 @@
 ---
 name: apartment-cleaning
-description: "Book a professional apartment cleaning in San Francisco via the claw.cleaning MCP server. Use when someone wants to book, schedule, or inquire about apartment cleaning services, cleaning availability, cleaning prices, or cleaning appointments. Rate is $40/hour, Saturdays and Sundays only, SF addresses only. Two payment options: pay now with a card, or pay the cleaner in person at the appointment. Handles the full flow: check availability, collect details, choose payment, confirm booking."
-metadata: {"openclaw":{"emoji":"🧹","mcp":{"url":"https://claw.cleaning/mcp","transport":"streamable-http","tools":["check_availability","initiate_booking","force_checkout_booking","check_booking_status"]}}}
+description: "Book a professional apartment cleaning in San Francisco via the claw.cleaning MCP server. Use when someone wants to book, schedule, or inquire about apartment cleaning services, cleaning availability, cleaning prices, or cleaning appointments. Rate is $40/hour, Saturdays and Sundays only, SF addresses only. Two payment options: pay now with a card (fresh Stripe checkout every time — nothing saved), or pay the cleaner in person at the appointment. Handles the full flow: check availability, collect details, choose payment, confirm booking."
+metadata: {"openclaw":{"emoji":"🧹","mcp":{"url":"https://claw.cleaning/mcp","transport":"streamable-http","tools":["check_availability","initiate_booking","check_booking_status"]}}}
 ---
 
 # Apartment Cleaning Booking
@@ -12,7 +12,7 @@ metadata: {"openclaw":{"emoji":"🧹","mcp":{"url":"https://claw.cleaning/mcp","
 - **Rate:** $40/hour (1–8 hours)
 - **Days:** Saturdays and Sundays only
 - **Hours:** 8 AM – 6 PM PT
-- **Payment:** Pay now (Stripe) or pay the cleaner in person
+- **Payment:** Pay now via Stripe Checkout (fresh every booking, nothing saved) or pay the cleaner in person
 
 ## How This Skill Works
 
@@ -24,12 +24,11 @@ This skill drives the `claw-cleaning` MCP server — nothing runs locally.
 
 ### Available Tools
 - `check_availability` — list open weekend slots
-- `initiate_booking` — reserve a slot (pay now or pay in person)
-- `force_checkout_booking` — issue a fresh Stripe URL after a failed charge
+- `initiate_booking` — reserve a slot (pay now via Stripe, or pay in person)
 - `check_booking_status` — look up recent bookings by email
 
 ## Safety Rules
-- Never call `initiate_booking` or `force_checkout_booking` without showing the full preview to the customer and getting explicit confirmation ("yes", "confirm", "book it", etc.).
+- Never call `initiate_booking` without showing the full preview to the customer and getting explicit confirmation ("yes", "confirm", "book it", etc.).
 - Always call `check_availability` before `initiate_booking` to confirm the slot is listed as available.
 - Do not invent available times — only offer times returned by `check_availability`.
 - Ask the customer which payment option they want (pay now, or pay in person) before building the preview.
@@ -51,7 +50,7 @@ Ask the customer:
 - Their name
 - Their email (calendar invite goes here)
 - **Payment preference:**
-  - **Pay now** — a Stripe checkout link; card is saved so future bookings with the same email charge automatically.
+  - **Pay now** — a Stripe checkout link; customer enters card details in their browser. Nothing is saved or auto-charged; the same flow happens for every booking.
   - **Pay on completion** — no upfront payment. The cleaner collects cash or card at the appointment.
 
 ### Step 3 — Confirm before booking
@@ -59,16 +58,12 @@ Show the customer a summary (date, start time, hours, address, total, email, pay
 
 ### Step 4 — Initiate booking
 
-**Pay now (default):** call `initiate_booking` with `{ date, startTime, hours, address, name, email }`.
-- First-time customer → returns `{ status: "checkout_required", checkoutUrl }`. Share the URL; their card is saved for next time.
-- Returning customer (card on file) → auto-charges and returns `{ status: "booked" }`. No URL to share.
-- Charge failure on a returning customer → returns `{ status: "charge_failed", ... }`. Tell the customer the card was declined and offer to retry using `force_checkout_booking` with the same arguments to issue a fresh checkout URL for a different card.
+**Pay now (default):** call `initiate_booking` with `{ date, startTime, hours, address, name, email }`. Returns `{ status: "checkout_required", checkoutUrl, sessionId }`. Share the URL; the customer pays and receives a calendar invite after payment clears.
 
-**Pay on completion:** call `initiate_booking` with the same fields plus `payInPerson: true`. No Stripe link. The slot is reserved immediately and the calendar invite is sent.
+**Pay on completion:** call `initiate_booking` with the same fields plus `payInPerson: true`. Returns `{ status: "booked", paymentMethod: "in_person" }`. The slot is reserved immediately and the calendar invite is sent.
 
 ### Step 5 — Deliver the outcome
 - **Pay now, checkout_required:** share the `checkoutUrl` and tell the customer they'll get a calendar invite after payment clears.
-- **Pay now, booked:** tell the customer the card on file was charged and the calendar invite is on its way.
 - **Pay on completion:** tell the customer the slot is booked, the calendar invite is on its way, and they owe the cleaner $40/hour at the end of the session.
 
 ### Step 6 — Check status (optional)
@@ -86,6 +81,5 @@ Call `check_booking_status` with `{ email }` if the customer asks whether their 
 - "Address must be in San Francisco, CA." → ask for a valid SF address
 - "That time slot is no longer available." → call `check_availability` and offer alternatives
 - "Hours must be between 1 and 8." → correct the hours value
-- `charge_failed` → offer `force_checkout_booking` for a fresh checkout URL
 
-See `references/booking-flow.md` for a full example conversation flow, including both payment options.
+See `references/booking-flow.md` for a full example conversation flow for both payment options.

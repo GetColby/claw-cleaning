@@ -30,7 +30,6 @@ export default definePluginEntry(({ api, config }) => {
     tools: [
       'check_availability',
       'initiate_booking',
-      'force_checkout_booking',
       'check_booking_status',
     ],
     description: 'Book a San Francisco apartment cleaning. $40/hour, weekends only.',
