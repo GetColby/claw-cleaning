@@ -7,7 +7,7 @@ import { homepageMarkdown, homepageHtml } from './homepage.js';
 import { privacyMarkdown, privacyHtml } from './privacy.js';
 import { llmsTxt, agentsTxt, sitemapXml, wellKnownMcp } from './discovery.js';
 import { iconSvg } from './assets.js';
-import { cancelDeclinedBookings } from './lib/calendar.js';
+import { cancelDeclinedBookings, backfillSourceTags } from './lib/calendar.js';
 
 const app = new Hono();
 
@@ -42,6 +42,22 @@ app.get('/favicon.svg', c => c.body(iconSvg, 200, {
 }));
 
 app.get('/health', c => c.json({ service: 'claw-cleaning-server', status: 'ok' }));
+
+// One-shot backfill: stamps `source=unknown` onto any future cleaning event
+// that predates the source-tagging rollout. Idempotent. Requires ADMIN_SECRET.
+app.post('/admin/backfill-source-tags', async c => {
+  const expected = c.env.ADMIN_SECRET;
+  if (!expected) return c.json({ error: 'Admin endpoint disabled: ADMIN_SECRET not configured.' }, 503);
+  const auth = c.req.header('authorization');
+  if (auth !== `Bearer ${expected}`) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    const result = await backfillSourceTags(c.env);
+    return c.json({ updatedCount: result.updated.length, skippedCount: result.skipped.length, ...result });
+  } catch (err) {
+    console.error('backfill error:', err);
+    return c.json({ error: 'Backfill failed.', detail: err.message }, 500);
+  }
+});
 
 export default {
   fetch: app.fetch.bind(app),

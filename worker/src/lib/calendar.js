@@ -158,7 +158,7 @@ export async function getBookingsByEmail(env, email, limit = 20) {
 // Create the 3 calendar events for a confirmed booking. All three share a
 // `claw_booking_id` extended-property so the decline-cleanup cron can find and
 // delete the full set when the customer declines the invite.
-export async function createBookingEvents(env, { date, startTime, hours, address, name, email }) {
+export async function createBookingEvents(env, { date, startTime, hours, address, name, email, source }) {
   const [h, m] = startTime.split(':').map(Number);
   const cleanStart = new Date(`${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00-07:00`);
   const cleanEnd = new Date(cleanStart.getTime() + hours * 60 * 60 * 1000);
@@ -178,11 +178,15 @@ export async function createBookingEvents(env, { date, startTime, hours, address
     ...extra,
   });
 
+  // `source=<value>` is the only durable caller-surface tag we have until a real bookings store exists.
+  // Keep it on its own line so the weekly dashboard pull can grep it out of the description.
+  const sourceLine = `source=${source || 'unknown'}`;
+
   const events = [
     makeEvent(`🚗 Travel to ${name}`, travelStart, cleanStart),
     makeEvent(`🧹 Apartment Cleaning — ${name}`, cleanStart, cleanEnd, {
       location: address,
-      description: `${hours}h cleaning session\nAddress: ${address}\nCustomer: ${name} <${email}>\nRate: $${hours * 40}\n\nDeclining this calendar invite cancels the booking — the cleaner will not show up.`,
+      description: `${hours}h cleaning session\nAddress: ${address}\nCustomer: ${name} <${email}>\nRate: $${hours * 40}\n${sourceLine}\n\nDeclining this calendar invite cancels the booking — the cleaner will not show up.`,
       attendees: [{ email }],
       sendUpdates: 'all',
     }),
@@ -232,4 +236,34 @@ export async function cancelDeclinedBookings(env) {
   }
 
   return cancelled;
+}
+
+// Append `source=unknown` to the description of any future-dated cleaning event
+// that does not already have a `source=` line. Idempotent: re-running skips
+// events that already carry a source tag. Intended to be called once after the
+// source-tagging change ships, via the protected admin endpoint.
+export async function backfillSourceTags(env, { maxResults = 250 } = {}) {
+  const timeMin = new Date().toISOString();
+  const listPath = `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events?timeMin=${encodeURIComponent(timeMin)}&maxResults=${maxResults}&singleEvents=true&orderBy=startTime`;
+  const data = await calFetch(env, listPath);
+  const updated = [];
+  const skipped = [];
+
+  for (const ev of data.items || []) {
+    if (typeof ev.summary !== 'string' || !ev.summary.startsWith('🧹')) continue;
+    const desc = ev.description || '';
+    if (/^source=/m.test(desc)) {
+      skipped.push(ev.id);
+      continue;
+    }
+    const separator = desc.length === 0 ? '' : (desc.endsWith('\n') ? '' : '\n');
+    const newDesc = `${desc}${separator}source=unknown`;
+    await calFetch(env, `/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events/${encodeURIComponent(ev.id)}?sendUpdates=none`, {
+      method: 'PATCH',
+      body: JSON.stringify({ description: newDesc }),
+    });
+    updated.push(ev.id);
+  }
+
+  return { updated, skipped };
 }
