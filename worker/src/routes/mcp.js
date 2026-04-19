@@ -1,4 +1,5 @@
 import { getBusyIntervals, computeAvailableSlots, isSlotFree, createBookingEvents, getBookingsByEmail } from '../lib/calendar.js';
+import { ALLOWED_SOURCES } from './bookings.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'claw-cleaning', version: '1.0.0' };
@@ -28,6 +29,7 @@ const TOOLS = [
         address: { type: 'string', description: 'Full street address. Must be in San Francisco, CA.' },
         name: { type: 'string', description: "Customer's full name." },
         email: { type: 'string', description: 'Customer email. Calendar invite goes here.' },
+        source: { type: 'string', enum: [...ALLOWED_SOURCES], description: 'Optional caller surface. Defaults to `mcp` when omitted.' },
       },
     },
   },
@@ -83,7 +85,7 @@ function toolError(message) {
 }
 
 function validateBookingArgs(args) {
-  const { date, startTime, hours, address, name: customer, email } = args;
+  const { date, startTime, hours, address, name: customer, email, source } = args;
   if (!date || !startTime || hours == null || !address || !customer || !email) {
     return { error: 'Missing required fields: date, startTime, hours, address, name, email.' };
   }
@@ -94,7 +96,11 @@ function validateBookingArgs(args) {
   if (!hoursNum || hoursNum < 1 || hoursNum > 8) return { error: 'Hours must be between 1 and 8.' };
   if (!isSFAddress(address)) return { error: 'Address must be in San Francisco, CA.' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Invalid email address.' };
-  return { ok: { date, startTime, hours: hoursNum, address, name: customer, email } };
+  const resolvedSource = source == null ? 'mcp' : source;
+  if (!ALLOWED_SOURCES.includes(resolvedSource)) {
+    return { error: `Invalid source. Must be one of: ${ALLOWED_SOURCES.join(', ')}.` };
+  }
+  return { ok: { date, startTime, hours: hoursNum, address, name: customer, email, source: resolvedSource } };
 }
 
 async function runTool(env, name, args) {
@@ -119,7 +125,7 @@ async function runTool(env, name, args) {
   if (name === 'initiate_booking') {
     const v = validateBookingArgs(args);
     if (v.error) return toolError(v.error);
-    const { date, startTime, hours, address, name: customer, email } = v.ok;
+    const { date, startTime, hours, address, name: customer, email, source } = v.ok;
     const totalDollars = hours * RATE_DOLLARS;
 
     if (isEmailBlocked(env, email)) {
@@ -130,7 +136,7 @@ async function runTool(env, name, args) {
     if (!free) return toolError('That time slot is no longer available. Check availability and choose another time.');
 
     try {
-      await createBookingEvents(env, { date, startTime, hours, address, name: customer, email });
+      await createBookingEvents(env, { date, startTime, hours, address, name: customer, email, source });
     } catch (err) {
       console.error('Calendar event creation failed:', err);
       return toolError('Could not create calendar event. Please try again.');
@@ -138,7 +144,7 @@ async function runTool(env, name, args) {
     return textResult({
       status: 'booked',
       total: `$${totalDollars}`,
-      date, startTime, hours, address, email,
+      date, startTime, hours, address, email, source,
       message: `Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}. The customer pays $${totalDollars} to the cleaner at the appointment (cash or card).`,
     });
   }

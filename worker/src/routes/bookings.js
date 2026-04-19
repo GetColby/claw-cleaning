@@ -2,6 +2,8 @@ import { isSlotFree, createBookingEvents, getBookingsByEmail } from '../lib/cale
 
 const RATE_DOLLARS = 40; // $40/hour
 
+export const ALLOWED_SOURCES = ['mcp', 'web', 'direct', 'agent'];
+
 function isSatOrSun(dateStr) {
   const day = new Date(dateStr + 'T12:00:00Z').getUTCDay();
   return day === 0 || day === 6;
@@ -20,8 +22,8 @@ function isEmailBlocked(env, email) {
   return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(needle);
 }
 
-function validateBookingBody(body) {
-  const { date, startTime, hours, address, name, email } = body || {};
+function validateBookingBody(body, defaultSource) {
+  const { date, startTime, hours, address, name, email, source } = body || {};
   if (!date || !startTime || !hours || !address || !name || !email) {
     return { error: 'Missing required fields: date, startTime, hours, address, name, email.' };
   }
@@ -32,16 +34,22 @@ function validateBookingBody(body) {
   if (!hoursNum || hoursNum < 1 || hoursNum > 8) return { error: 'Hours must be between 1 and 8.' };
   if (!isSFAddress(address)) return { error: 'Address must be in San Francisco, CA.' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Invalid email address.' };
-  return { ok: { date, startTime, hours: hoursNum, address, name, email } };
+  const resolvedSource = source == null ? defaultSource : source;
+  if (!ALLOWED_SOURCES.includes(resolvedSource)) {
+    return { error: `Invalid source. Must be one of: ${ALLOWED_SOURCES.join(', ')}.` };
+  }
+  return { ok: { date, startTime, hours: hoursNum, address, name, email, source: resolvedSource } };
 }
 
 export async function handleInitiateBooking(c) {
   let body;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body.' }, 400); }
 
-  const validated = validateBookingBody(body);
+  // REST callers that don't declare a source are treated as `direct`.
+  // MCP has its own handler that defaults to `mcp`; a future web form should send `web`.
+  const validated = validateBookingBody(body, 'direct');
   if (validated.error) return c.json({ error: validated.error }, 400);
-  const { date, startTime, hours, address, name, email } = validated.ok;
+  const { date, startTime, hours, address, name, email, source } = validated.ok;
   const total = hours * RATE_DOLLARS;
 
   if (isEmailBlocked(c.env, email)) {
@@ -58,7 +66,7 @@ export async function handleInitiateBooking(c) {
     }
 
     try {
-      await createBookingEvents(c.env, { date, startTime, hours, address, name, email });
+      await createBookingEvents(c.env, { date, startTime, hours, address, name, email, source });
     } catch (err) {
       console.error('Calendar event creation failed:', err);
       return c.json({ error: 'Could not create calendar event. Please try again.' }, 500);
@@ -67,7 +75,7 @@ export async function handleInitiateBooking(c) {
     return c.json({
       status: 'booked',
       total: `$${total}`,
-      date, startTime, hours, address, email,
+      date, startTime, hours, address, email, source,
       message: `Cleaning confirmed for ${date} at ${startTime} (${hours}h). Calendar invite sent to ${email}. Pay $${total} cash or card to the cleaner at the appointment.`,
     });
   } catch (err) {
