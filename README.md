@@ -50,7 +50,6 @@ Three tools over MCP, all for booking an SF weekend apartment cleaning:
 
 - **Claude Code plugin** — bundles the MCP connector + the `apartment-cleaning` skill, zero local binary. See [`plugin/`](plugin/).
 - **Skill** — `openclaw install apartment-cleaning` or `hermes install apartment-cleaning`. The skill drives the MCP server above — no local binary required. See [`skill/apartment-cleaning/SKILL.md`](skill/apartment-cleaning/SKILL.md).
-- **CLI** — `npm install -g claw-cleaning` then `claw-cleaning availability`, `claw-cleaning book`, `claw-cleaning status`. See [`cli/`](cli/).
 
 ## Machine-readable metadata
 
